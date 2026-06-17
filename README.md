@@ -26,7 +26,8 @@ Example output shape:
 - Right-click in a Markdown editor and choose `Paste as Markdown table, first row as header` to force the first clipboard row to become the Markdown table header.
 - Right-click in a Markdown editor and choose `Paste as HTML table` to paste the clipboard's first HTML table.
 - Use the command palette action `Insert HTML table from clipboard` for the same HTML-table paste behavior.
-- Regular `Ctrl+V` / `Cmd+V` is left to Obsidian's default paste behavior.
+- Regular `Ctrl+V` / `Cmd+V` inserts clipboard HTML tables directly when the paste event contains an HTML table. This path preserves spreadsheet clipboard styling more reliably than reading the clipboard outside the paste event.
+- Use the command palette action `Copy clipboard HTML diagnostics` if table styles are not preserved and you need to inspect what HTML Obsidian can see.
 
 ## Install for local use
 

@@ -42,6 +42,15 @@ var HtmlTablePastePlugin = class extends import_obsidian.Plugin {
         }
       }
     });
+    this.addCommand({
+      id: "copy-clipboard-html-diagnostics",
+      name: "Copy clipboard HTML diagnostics",
+      callback: async () => {
+        const report = await createClipboardDiagnostics();
+        await navigator.clipboard.writeText(report);
+        new import_obsidian.Notice("Copied clipboard diagnostics.");
+      }
+    });
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
       menu.addItem((item) => {
         item.setTitle("Paste as Markdown table").setIcon("sheet").onClick(async () => {
@@ -68,6 +77,27 @@ var HtmlTablePastePlugin = class extends import_obsidian.Plugin {
         });
       });
     }));
+    this.registerDomEvent(document, "paste", (event) => {
+      if (!event.clipboardData) {
+        return;
+      }
+      const html = event.clipboardData.getData("text/html");
+      if (!html || !hasHtmlTable(html)) {
+        return;
+      }
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+      if (!view) {
+        return;
+      }
+      const inserted = this.insertHtmlTable(view.editor, html);
+      if (!inserted) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      new import_obsidian.Notice("Pasted HTML table.");
+    }, { capture: true });
   }
   insertHtmlTableFromClipboardHtml(html) {
     const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
@@ -147,6 +177,41 @@ function readElectronClipboardText() {
   } catch {
     return null;
   }
+}
+async function createClipboardDiagnostics() {
+  const electronHtml = readElectronClipboardHtml();
+  const webHtmlCandidates = [];
+  if (navigator.clipboard.read) {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (!item.types.includes("text/html")) {
+          continue;
+        }
+        const blob = await item.getType("text/html");
+        webHtmlCandidates.push(await blob.text());
+      }
+    } catch (error) {
+      webHtmlCandidates.push(`ERROR: ${String(error)}`);
+    }
+  }
+  return [
+    "HTML Table Paste clipboard diagnostics",
+    "",
+    formatHtmlDiagnostic("electron.readHTML", electronHtml),
+    ...webHtmlCandidates.map((html, index) => formatHtmlDiagnostic(`navigator.clipboard text/html #${index + 1}`, html))
+  ].join("\n");
+}
+function formatHtmlDiagnostic(label, html) {
+  return [
+    `${label}:`,
+    `  length: ${html?.length ?? 0}`,
+    `  has table: ${html ? hasHtmlTable(html) : false}`,
+    `  has background-color: ${html ? /background-color/i.test(html) : false}`,
+    `  has background: ${html ? /\bbackground\s*:/i.test(html) : false}`,
+    `  has bgcolor: ${html ? /\bbgcolor\b/i.test(html) : false}`,
+    `  preview: ${html ? html.slice(0, 500).replace(/\s+/g, " ") : ""}`
+  ].join("\n");
 }
 function hasHtmlTable(html) {
   const parser = new DOMParser();
