@@ -99,6 +99,10 @@ var HtmlTablePastePlugin = class extends import_obsidian.Plugin {
   }
 };
 async function readClipboardHtml() {
+  const electronHtml = readElectronClipboardHtml();
+  if (electronHtml) {
+    return electronHtml;
+  }
   if (!navigator.clipboard.read) {
     return null;
   }
@@ -113,11 +117,33 @@ async function readClipboardHtml() {
   return null;
 }
 async function readClipboardText() {
+  const electronText = readElectronClipboardText();
+  if (electronText) {
+    return electronText;
+  }
   if (!navigator.clipboard.readText) {
     return null;
   }
   const text = await navigator.clipboard.readText();
   return text || null;
+}
+function readElectronClipboardHtml() {
+  try {
+    const electronClipboard = require("electron")?.clipboard;
+    const html = electronClipboard?.readHTML?.();
+    return html || null;
+  } catch {
+    return null;
+  }
+}
+function readElectronClipboardText() {
+  try {
+    const electronClipboard = require("electron")?.clipboard;
+    const text = electronClipboard?.readText?.();
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 function createMarkdownTableFromClipboard(html, text, forceFirstRowAsHeader) {
   const table = html ? extractClipboardTable(html) : null;

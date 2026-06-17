@@ -102,6 +102,11 @@ export default class HtmlTablePastePlugin extends Plugin {
 }
 
 async function readClipboardHtml(): Promise<string | null> {
+  const electronHtml = readElectronClipboardHtml();
+  if (electronHtml) {
+    return electronHtml;
+  }
+
   if (!navigator.clipboard.read) {
     return null;
   }
@@ -120,12 +125,37 @@ async function readClipboardHtml(): Promise<string | null> {
 }
 
 async function readClipboardText(): Promise<string | null> {
+  const electronText = readElectronClipboardText();
+  if (electronText) {
+    return electronText;
+  }
+
   if (!navigator.clipboard.readText) {
     return null;
   }
 
   const text = await navigator.clipboard.readText();
   return text || null;
+}
+
+function readElectronClipboardHtml(): string | null {
+  try {
+    const electronClipboard = require("electron")?.clipboard;
+    const html = electronClipboard?.readHTML?.();
+    return html || null;
+  } catch {
+    return null;
+  }
+}
+
+function readElectronClipboardText(): string | null {
+  try {
+    const electronClipboard = require("electron")?.clipboard;
+    const text = electronClipboard?.readText?.();
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 
 function createMarkdownTableFromClipboard(
