@@ -47,4 +47,4 @@ npm run build
 - This is desktop-only.
 - Whether spreadsheet cell colors survive depends on what HTML your clipboard actually contains.
 - The plugin currently keeps a narrow set of tags and attributes to avoid dumping arbitrary clipboard HTML into notes.
-- No license has been selected yet.
+- Licensed under the MIT License.
