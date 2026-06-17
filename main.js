@@ -130,6 +130,10 @@ var HtmlTablePastePlugin = class extends import_obsidian.Plugin {
 };
 async function readClipboardHtml() {
   const candidates = [];
+  const electronHtmlFormat = readElectronClipboardHtmlFormat();
+  if (electronHtmlFormat) {
+    candidates.push(electronHtmlFormat);
+  }
   const electronHtml = readElectronClipboardHtml();
   if (electronHtml) {
     candidates.push(electronHtml);
@@ -169,6 +173,18 @@ function readElectronClipboardHtml() {
     return null;
   }
 }
+function readElectronClipboardHtmlFormat() {
+  try {
+    const electronClipboard = require("electron")?.clipboard;
+    const buffer = electronClipboard?.readBuffer?.("HTML Format");
+    if (!buffer || buffer.length === 0) {
+      return null;
+    }
+    return extractHtmlFromClipboardFormat(buffer.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
 function readElectronClipboardText() {
   try {
     const electronClipboard = require("electron")?.clipboard;
@@ -179,6 +195,7 @@ function readElectronClipboardText() {
   }
 }
 async function createClipboardDiagnostics() {
+  const electronHtmlFormat = readElectronClipboardHtmlFormat();
   const electronHtml = readElectronClipboardHtml();
   const webHtmlCandidates = [];
   if (navigator.clipboard.read) {
@@ -198,9 +215,27 @@ async function createClipboardDiagnostics() {
   return [
     "HTML Table Paste clipboard diagnostics",
     "",
+    formatHtmlDiagnostic("electron.readBuffer HTML Format", electronHtmlFormat),
     formatHtmlDiagnostic("electron.readHTML", electronHtml),
     ...webHtmlCandidates.map((html, index) => formatHtmlDiagnostic(`navigator.clipboard text/html #${index + 1}`, html))
   ].join("\n");
+}
+function extractHtmlFromClipboardFormat(clipboardHtml) {
+  const startHtml = readClipboardFormatOffset(clipboardHtml, "StartHTML");
+  const endHtml = readClipboardFormatOffset(clipboardHtml, "EndHTML");
+  if (startHtml !== null && endHtml !== null && startHtml >= 0 && endHtml > startHtml) {
+    return clipboardHtml.slice(startHtml, endHtml);
+  }
+  const startFragment = readClipboardFormatOffset(clipboardHtml, "StartFragment");
+  const endFragment = readClipboardFormatOffset(clipboardHtml, "EndFragment");
+  if (startFragment !== null && endFragment !== null && startFragment >= 0 && endFragment > startFragment) {
+    return clipboardHtml.slice(startFragment, endFragment);
+  }
+  return clipboardHtml || null;
+}
+function readClipboardFormatOffset(clipboardHtml, name) {
+  const match = clipboardHtml.match(new RegExp(`${name}:(\\d+)`, "i"));
+  return match ? Number.parseInt(match[1], 10) : null;
 }
 function formatHtmlDiagnostic(label, html) {
   return [

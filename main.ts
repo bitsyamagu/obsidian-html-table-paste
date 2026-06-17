@@ -139,6 +139,11 @@ export default class HtmlTablePastePlugin extends Plugin {
 
 async function readClipboardHtml(): Promise<string | null> {
   const candidates: string[] = [];
+  const electronHtmlFormat = readElectronClipboardHtmlFormat();
+  if (electronHtmlFormat) {
+    candidates.push(electronHtmlFormat);
+  }
+
   const electronHtml = readElectronClipboardHtml();
   if (electronHtml) {
     candidates.push(electronHtml);
@@ -186,6 +191,20 @@ function readElectronClipboardHtml(): string | null {
   }
 }
 
+function readElectronClipboardHtmlFormat(): string | null {
+  try {
+    const electronClipboard = require("electron")?.clipboard;
+    const buffer = electronClipboard?.readBuffer?.("HTML Format");
+    if (!buffer || buffer.length === 0) {
+      return null;
+    }
+
+    return extractHtmlFromClipboardFormat(buffer.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
 function readElectronClipboardText(): string | null {
   try {
     const electronClipboard = require("electron")?.clipboard;
@@ -197,6 +216,7 @@ function readElectronClipboardText(): string | null {
 }
 
 async function createClipboardDiagnostics(): Promise<string> {
+  const electronHtmlFormat = readElectronClipboardHtmlFormat();
   const electronHtml = readElectronClipboardHtml();
   const webHtmlCandidates: string[] = [];
 
@@ -219,9 +239,31 @@ async function createClipboardDiagnostics(): Promise<string> {
   return [
     "HTML Table Paste clipboard diagnostics",
     "",
+    formatHtmlDiagnostic("electron.readBuffer HTML Format", electronHtmlFormat),
     formatHtmlDiagnostic("electron.readHTML", electronHtml),
     ...webHtmlCandidates.map((html, index) => formatHtmlDiagnostic(`navigator.clipboard text/html #${index + 1}`, html)),
   ].join("\n");
+}
+
+function extractHtmlFromClipboardFormat(clipboardHtml: string): string | null {
+  const startHtml = readClipboardFormatOffset(clipboardHtml, "StartHTML");
+  const endHtml = readClipboardFormatOffset(clipboardHtml, "EndHTML");
+  if (startHtml !== null && endHtml !== null && startHtml >= 0 && endHtml > startHtml) {
+    return clipboardHtml.slice(startHtml, endHtml);
+  }
+
+  const startFragment = readClipboardFormatOffset(clipboardHtml, "StartFragment");
+  const endFragment = readClipboardFormatOffset(clipboardHtml, "EndFragment");
+  if (startFragment !== null && endFragment !== null && startFragment >= 0 && endFragment > startFragment) {
+    return clipboardHtml.slice(startFragment, endFragment);
+  }
+
+  return clipboardHtml || null;
+}
+
+function readClipboardFormatOffset(clipboardHtml: string, name: string): number | null {
+  const match = clipboardHtml.match(new RegExp(`${name}:(\\d+)`, "i"));
+  return match ? Number.parseInt(match[1], 10) : null;
 }
 
 function formatHtmlDiagnostic(label: string, html: string | null): string {
