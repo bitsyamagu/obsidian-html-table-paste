@@ -4,8 +4,9 @@ An Obsidian plugin for pasting clipboard HTML tables into Markdown notes while k
 
 ## What it does
 
-- Intercepts paste events in Markdown notes when the clipboard contains an HTML `<table>`.
-- Inserts the HTML table directly instead of Obsidian's default Markdown-style paste output.
+- Adds editor context menu actions for choosing how clipboard table data should be pasted.
+- Inserts HTML tables directly instead of Obsidian's default Markdown-style paste output when you choose the HTML table action.
+- Converts clipboard table data to Markdown tables, either using clipboard `<th>` cells as headers or forcing the first row to be the Markdown header.
 - Preserves cell background colors from inline styles, stylesheet rules, and `bgcolor` attributes when available.
 - Keeps table rows readable in source mode by outputting one `<tr>...</tr>` per line while keeping cells on the same line.
 - Removes unsupported tags and attributes from pasted table HTML.
@@ -18,6 +19,14 @@ Example output shape:
 <tr><td>...</td><td>...</td></tr>
 </tbody></table>
 ```
+
+## Usage
+
+- Right-click in a Markdown editor and choose `Paste as Markdown table` to convert the clipboard table to Markdown. If the clipboard HTML contains `<th>` cells in the first row, they are used as headers. Otherwise generic `Column 1`, `Column 2`, ... headers are inserted because Markdown tables require a header row.
+- Right-click in a Markdown editor and choose `Paste as Markdown table, first row as header` to force the first clipboard row to become the Markdown table header.
+- Right-click in a Markdown editor and choose `Paste as HTML table` to paste the clipboard's first HTML table.
+- Use the command palette action `Insert HTML table from clipboard` for the same HTML-table paste behavior.
+- Regular `Ctrl+V` / `Cmd+V` is left to Obsidian's default paste behavior.
 
 ## Install for local use
 

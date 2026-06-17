@@ -35,49 +35,67 @@ var HtmlTablePastePlugin = class extends import_obsidian.Plugin {
           new import_obsidian.Notice("Clipboard does not contain HTML table text.");
           return;
         }
-        if (this.insertHtmlTable(html)) {
+        if (this.insertHtmlTableFromClipboardHtml(html)) {
           new import_obsidian.Notice("Inserted HTML table.");
         } else {
           new import_obsidian.Notice("No HTML table found in clipboard.");
         }
       }
     });
-    this.registerDomEvent(document, "paste", (event) => {
-      if (!event.clipboardData) {
-        return;
-      }
-      const html = event.clipboardData.getData("text/html");
-      if (!html || !html.includes("<table")) {
-        return;
-      }
-      if (!this.hasActiveMarkdownEditor()) {
-        return;
-      }
-      const inserted = this.insertHtmlTable(html);
-      if (!inserted) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      new import_obsidian.Notice("Pasted HTML table.");
-    }, { capture: true });
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
+      menu.addItem((item) => {
+        item.setTitle("Paste as Markdown table").setIcon("sheet").onClick(async () => {
+          await this.insertMarkdownTableFromClipboard(editor, false);
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle("Paste as Markdown table, first row as header").setIcon("heading").onClick(async () => {
+          await this.insertMarkdownTableFromClipboard(editor, true);
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle("Paste as HTML table").setIcon("table").onClick(async () => {
+          const html = await readClipboardHtml();
+          if (!html || !html.includes("<table")) {
+            new import_obsidian.Notice("Clipboard does not contain HTML table text.");
+            return;
+          }
+          if (this.insertHtmlTable(editor, html)) {
+            new import_obsidian.Notice("Inserted HTML table.");
+          } else {
+            new import_obsidian.Notice("No HTML table found in clipboard.");
+          }
+        });
+      });
+    }));
   }
-  hasActiveMarkdownEditor() {
-    return this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView) !== null;
-  }
-  insertHtmlTable(html) {
+  insertHtmlTableFromClipboardHtml(html) {
     const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
     if (!view) {
       return false;
     }
+    return this.insertHtmlTable(view.editor, html);
+  }
+  insertHtmlTable(editor, html) {
     const tableHtml = extractAndCleanFirstTable(html);
     if (!tableHtml) {
       return false;
     }
-    view.editor.replaceSelection(`${tableHtml}
+    editor.replaceSelection(`${tableHtml}
 `);
     return true;
+  }
+  async insertMarkdownTableFromClipboard(editor, forceFirstRowAsHeader) {
+    const html = await readClipboardHtml();
+    const text = await readClipboardText();
+    const markdownTable = createMarkdownTableFromClipboard(html, text, forceFirstRowAsHeader);
+    if (!markdownTable) {
+      new import_obsidian.Notice("Clipboard does not contain table data.");
+      return;
+    }
+    editor.replaceSelection(`${markdownTable}
+`);
+    new import_obsidian.Notice("Inserted Markdown table.");
   }
 };
 async function readClipboardHtml() {
@@ -93,6 +111,79 @@ async function readClipboardHtml() {
     return await blob.text();
   }
   return null;
+}
+async function readClipboardText() {
+  if (!navigator.clipboard.readText) {
+    return null;
+  }
+  const text = await navigator.clipboard.readText();
+  return text || null;
+}
+function createMarkdownTableFromClipboard(html, text, forceFirstRowAsHeader) {
+  const table = html ? extractClipboardTable(html) : null;
+  const rows = table ?? (text ? parseDelimitedTable(text) : null);
+  if (!rows || rows.length === 0 || rows.every((row) => row.length === 0)) {
+    return null;
+  }
+  return formatMarkdownTable(rows, forceFirstRowAsHeader);
+}
+function extractClipboardTable(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const table = doc.querySelector("table");
+  if (!table) {
+    return null;
+  }
+  const rows = Array.from(table.querySelectorAll("tr")).map((row) => Array.from(row.children).filter((child) => child.tagName === "TD" || child.tagName === "TH").map((cell) => ({
+    text: getCellMarkdownText(cell),
+    isHeader: cell.tagName === "TH"
+  }))).filter((row) => row.length > 0);
+  return rows.length > 0 ? rows : null;
+}
+function parseDelimitedTable(text) {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return null;
+  }
+  const delimiter = lines.some((line) => line.includes("	")) ? "	" : ",";
+  const rows = lines.map((line) => line.split(delimiter).map((cell) => ({
+    text: normalizeCellText(cell),
+    isHeader: false
+  }))).filter((row) => row.length > 0);
+  return rows.length > 0 ? rows : null;
+}
+function formatMarkdownTable(rows, forceFirstRowAsHeader) {
+  const width = Math.max(...rows.map((row) => row.length));
+  if (width === 0) {
+    return null;
+  }
+  const normalizedRows = rows.map((row) => padRow(row, width));
+  const firstRowHasHeaders = normalizedRows[0].some((cell) => cell.isHeader);
+  const header = forceFirstRowAsHeader || firstRowHasHeaders ? normalizedRows[0].map((cell) => cell.text) : Array.from({ length: width }, (_, index) => `Column ${index + 1}`);
+  const bodyRows = forceFirstRowAsHeader || firstRowHasHeaders ? normalizedRows.slice(1) : normalizedRows;
+  return [
+    formatMarkdownRow(header),
+    formatMarkdownRow(Array.from({ length: width }, () => "---")),
+    ...bodyRows.map((row) => formatMarkdownRow(row.map((cell) => cell.text)))
+  ].join("\n");
+}
+function padRow(row, width) {
+  return [
+    ...row,
+    ...Array.from({ length: width - row.length }, () => ({ text: "", isHeader: false }))
+  ];
+}
+function formatMarkdownRow(cells) {
+  return `| ${cells.map(escapeMarkdownTableCell).join(" | ")} |`;
+}
+function getCellMarkdownText(cell) {
+  return normalizeCellText(cell.textContent ?? "");
+}
+function normalizeCellText(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function escapeMarkdownTableCell(text) {
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 function extractAndCleanFirstTable(html) {
   const parser = new DOMParser();

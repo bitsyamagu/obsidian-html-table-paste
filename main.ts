@@ -1,4 +1,11 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import { Editor, MarkdownView, Notice, Plugin } from "obsidian";
+
+type ClipboardTableCell = {
+  text: string;
+  isHeader: boolean;
+};
+
+type ClipboardTable = ClipboardTableCell[][];
 
 export default class HtmlTablePastePlugin extends Plugin {
   async onload(): Promise<void> {
@@ -12,7 +19,7 @@ export default class HtmlTablePastePlugin extends Plugin {
           return;
         }
 
-        if (this.insertHtmlTable(html)) {
+        if (this.insertHtmlTableFromClipboardHtml(html)) {
           new Notice("Inserted HTML table.");
         } else {
           new Notice("No HTML table found in clipboard.");
@@ -20,49 +27,77 @@ export default class HtmlTablePastePlugin extends Plugin {
       },
     });
 
-    this.registerDomEvent(document, "paste", (event: ClipboardEvent) => {
-      if (!event.clipboardData) {
-        return;
-      }
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
+      menu.addItem((item) => {
+        item
+          .setTitle("Paste as Markdown table")
+          .setIcon("sheet")
+          .onClick(async () => {
+            await this.insertMarkdownTableFromClipboard(editor, false);
+          });
+      });
 
-      const html = event.clipboardData.getData("text/html");
-      if (!html || !html.includes("<table")) {
-        return;
-      }
+      menu.addItem((item) => {
+        item
+          .setTitle("Paste as Markdown table, first row as header")
+          .setIcon("heading")
+          .onClick(async () => {
+            await this.insertMarkdownTableFromClipboard(editor, true);
+          });
+      });
 
-      if (!this.hasActiveMarkdownEditor()) {
-        return;
-      }
+      menu.addItem((item) => {
+        item
+          .setTitle("Paste as HTML table")
+          .setIcon("table")
+          .onClick(async () => {
+            const html = await readClipboardHtml();
+            if (!html || !html.includes("<table")) {
+              new Notice("Clipboard does not contain HTML table text.");
+              return;
+            }
 
-      const inserted = this.insertHtmlTable(html);
-      if (!inserted) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      new Notice("Pasted HTML table.");
-    }, { capture: true });
+            if (this.insertHtmlTable(editor, html)) {
+              new Notice("Inserted HTML table.");
+            } else {
+              new Notice("No HTML table found in clipboard.");
+            }
+          });
+      });
+    }));
   }
 
-  private hasActiveMarkdownEditor(): boolean {
-    return this.app.workspace.getActiveViewOfType(MarkdownView) !== null;
-  }
-
-  private insertHtmlTable(html: string): boolean {
+  private insertHtmlTableFromClipboardHtml(html: string): boolean {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) {
       return false;
     }
 
+    return this.insertHtmlTable(view.editor, html);
+  }
+
+  private insertHtmlTable(editor: Editor, html: string): boolean {
     const tableHtml = extractAndCleanFirstTable(html);
     if (!tableHtml) {
       return false;
     }
 
-    view.editor.replaceSelection(`${tableHtml}\n`);
+    editor.replaceSelection(`${tableHtml}\n`);
     return true;
+  }
+
+  private async insertMarkdownTableFromClipboard(editor: Editor, forceFirstRowAsHeader: boolean): Promise<void> {
+    const html = await readClipboardHtml();
+    const text = await readClipboardText();
+    const markdownTable = createMarkdownTableFromClipboard(html, text, forceFirstRowAsHeader);
+
+    if (!markdownTable) {
+      new Notice("Clipboard does not contain table data.");
+      return;
+    }
+
+    editor.replaceSelection(`${markdownTable}\n`);
+    new Notice("Inserted Markdown table.");
   }
 }
 
@@ -82,6 +117,118 @@ async function readClipboardHtml(): Promise<string | null> {
   }
 
   return null;
+}
+
+async function readClipboardText(): Promise<string | null> {
+  if (!navigator.clipboard.readText) {
+    return null;
+  }
+
+  const text = await navigator.clipboard.readText();
+  return text || null;
+}
+
+function createMarkdownTableFromClipboard(
+  html: string | null,
+  text: string | null,
+  forceFirstRowAsHeader: boolean,
+): string | null {
+  const table = html ? extractClipboardTable(html) : null;
+  const rows = table ?? (text ? parseDelimitedTable(text) : null);
+
+  if (!rows || rows.length === 0 || rows.every((row) => row.length === 0)) {
+    return null;
+  }
+
+  return formatMarkdownTable(rows, forceFirstRowAsHeader);
+}
+
+function extractClipboardTable(html: string): ClipboardTable | null {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const table = doc.querySelector("table");
+
+  if (!table) {
+    return null;
+  }
+
+  const rows = Array.from(table.querySelectorAll("tr"))
+    .map((row) => Array.from(row.children)
+      .filter((child) => child.tagName === "TD" || child.tagName === "TH")
+      .map((cell) => ({
+        text: getCellMarkdownText(cell),
+        isHeader: cell.tagName === "TH",
+      })))
+    .filter((row) => row.length > 0);
+
+  return rows.length > 0 ? rows : null;
+}
+
+function parseDelimitedTable(text: string): ClipboardTable | null {
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
+  const rows = lines
+    .map((line) => line.split(delimiter).map((cell) => ({
+      text: normalizeCellText(cell),
+      isHeader: false,
+    })))
+    .filter((row) => row.length > 0);
+
+  return rows.length > 0 ? rows : null;
+}
+
+function formatMarkdownTable(rows: ClipboardTable, forceFirstRowAsHeader: boolean): string | null {
+  const width = Math.max(...rows.map((row) => row.length));
+  if (width === 0) {
+    return null;
+  }
+
+  const normalizedRows = rows.map((row) => padRow(row, width));
+  const firstRowHasHeaders = normalizedRows[0].some((cell) => cell.isHeader);
+  const header = forceFirstRowAsHeader || firstRowHasHeaders
+    ? normalizedRows[0].map((cell) => cell.text)
+    : Array.from({ length: width }, (_, index) => `Column ${index + 1}`);
+  const bodyRows = forceFirstRowAsHeader || firstRowHasHeaders
+    ? normalizedRows.slice(1)
+    : normalizedRows;
+
+  return [
+    formatMarkdownRow(header),
+    formatMarkdownRow(Array.from({ length: width }, () => "---")),
+    ...bodyRows.map((row) => formatMarkdownRow(row.map((cell) => cell.text))),
+  ].join("\n");
+}
+
+function padRow(row: ClipboardTableCell[], width: number): ClipboardTableCell[] {
+  return [
+    ...row,
+    ...Array.from({ length: width - row.length }, () => ({ text: "", isHeader: false })),
+  ];
+}
+
+function formatMarkdownRow(cells: string[]): string {
+  return `| ${cells.map(escapeMarkdownTableCell).join(" | ")} |`;
+}
+
+function getCellMarkdownText(cell: Element): string {
+  return normalizeCellText(cell.textContent ?? "");
+}
+
+function normalizeCellText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function escapeMarkdownTableCell(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 function extractAndCleanFirstTable(html: string): string | null {
