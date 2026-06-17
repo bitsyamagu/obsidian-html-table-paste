@@ -1,0 +1,9 @@
+{
+  "id": "html-table-paste",
+  "name": "HTML Table Paste",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Paste HTML tables from the clipboard into notes, preserving cell styling when available.",
+  "author": "yam",
+  "isDesktopOnly": true
+}

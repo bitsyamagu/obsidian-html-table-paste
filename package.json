@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-html-table-paste-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Obsidian plugin that pastes clipboard HTML tables into notes.",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "esbuild": "^0.23.0",
+    "obsidian": "^1.6.3",
+    "typescript": "^5.5.4"
+  }
+}
