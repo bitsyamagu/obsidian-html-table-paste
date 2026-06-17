@@ -14,7 +14,7 @@ export default class HtmlTablePastePlugin extends Plugin {
       name: "Insert HTML table from clipboard",
       callback: async () => {
         const html = await readClipboardHtml();
-        if (!html || !html.includes("<table")) {
+        if (!html) {
           new Notice("Clipboard does not contain HTML table text.");
           return;
         }
@@ -52,7 +52,7 @@ export default class HtmlTablePastePlugin extends Plugin {
           .setIcon("table")
           .onClick(async () => {
             const html = await readClipboardHtml();
-            if (!html || !html.includes("<table")) {
+            if (!html) {
               new Notice("Clipboard does not contain HTML table text.");
               return;
             }
@@ -102,26 +102,28 @@ export default class HtmlTablePastePlugin extends Plugin {
 }
 
 async function readClipboardHtml(): Promise<string | null> {
+  const candidates: string[] = [];
   const electronHtml = readElectronClipboardHtml();
   if (electronHtml) {
-    return electronHtml;
+    candidates.push(electronHtml);
   }
 
-  if (!navigator.clipboard.read) {
-    return null;
-  }
+  if (navigator.clipboard.read) {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      if (!item.types.includes("text/html")) {
+        continue;
+      }
 
-  const items = await navigator.clipboard.read();
-  for (const item of items) {
-    if (!item.types.includes("text/html")) {
-      continue;
+      const blob = await item.getType("text/html");
+      const html = await blob.text();
+      if (html) {
+        candidates.push(html);
+      }
     }
-
-    const blob = await item.getType("text/html");
-    return await blob.text();
   }
 
-  return null;
+  return candidates.find(hasHtmlTable) ?? null;
 }
 
 async function readClipboardText(): Promise<string | null> {
@@ -156,6 +158,12 @@ function readElectronClipboardText(): string | null {
   } catch {
     return null;
   }
+}
+
+function hasHtmlTable(html: string): boolean {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  return doc.querySelector("table") !== null;
 }
 
 function createMarkdownTableFromClipboard(
@@ -323,7 +331,7 @@ function applyStylesheetCellBackgrounds(doc: Document, table: HTMLTableElement):
     for (const rule of parseCssRules(style.textContent ?? "")) {
       const backgroundColor = getCssProperty(rule.declarations, "background-color");
       const background = getCssProperty(rule.declarations, "background");
-      const color = backgroundColor || extractBackgroundColor(background);
+      const color = backgroundColor || extractBackgroundColor(background) || extractRawCssBackgroundColor(rule.declarations);
 
       if (!color) {
         continue;
@@ -397,6 +405,16 @@ function extractBackgroundColor(background: string | null): string | null {
   tempStyle.background = background;
   const color = tempStyle.backgroundColor.trim();
   return color && color !== "rgba(0, 0, 0, 0)" ? color : null;
+}
+
+function extractRawCssBackgroundColor(declarations: string): string | null {
+  const match = declarations.match(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const colorMatch = match[1].match(/#[0-9a-f]{3,8}\b|rgba?\([^)]+\)|hsla?\([^)]+\)|\b[a-z]+\b/i);
+  return colorMatch?.[0] ?? null;
 }
 
 function sanitizeTable(table: HTMLTableElement): void {
